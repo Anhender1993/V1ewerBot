@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import aiohttp
 import asyncio
 import json
@@ -18,6 +18,7 @@ intents = discord.Intents.default()
 intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+tree = discord.app_commands.CommandTree(bot)
 
 STREAMERS_FILE = 'streamers.json'
 
@@ -26,6 +27,10 @@ def load_streamers():
         with open(STREAMERS_FILE, 'r') as f:
             return json.load(f)
     return []
+
+def save_streamers(streamers):
+    with open(STREAMERS_FILE, 'w') as f:
+        json.dump(streamers, f, indent=2)
 
 async def get_oauth_token():
     url = 'https://id.twitch.tv/oauth2/token'
@@ -64,11 +69,6 @@ async def check_streamers():
             )
             await channel.send(embed=embed)
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
-    bot.loop.create_task(auto_check_streamers())
-
 async def auto_check_streamers():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -77,6 +77,44 @@ async def auto_check_streamers():
             await check_streamers()
         except Exception as e:
             print(f"[AutoCheck Error] {e}")
-        await asyncio.sleep(300)  # 5 minutes
+        await asyncio.sleep(300)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    bot.loop.create_task(auto_check_streamers())
+
+# Slash command: Add streamer
+@tree.command(name="addstreamer", description="Add a streamer to tracking.", guild=discord.Object(id=GUILD_ID))
+async def addstreamer(interaction: discord.Interaction, streamer: str):
+    streamers = load_streamers()
+    if streamer.lower() in (s.lower() for s in streamers):
+        await interaction.response.send_message(f"{streamer} is already being tracked.", ephemeral=True)
+    else:
+        streamers.append(streamer)
+        save_streamers(streamers)
+        await interaction.response.send_message(f"Added {streamer} to tracking list.", ephemeral=True)
+
+# Slash command: Remove streamer
+@tree.command(name="removestreamer", description="Remove a streamer from tracking.", guild=discord.Object(id=GUILD_ID))
+async def removestreamer(interaction: discord.Interaction, streamer: str):
+    streamers = load_streamers()
+    for s in streamers:
+        if s.lower() == streamer.lower():
+            streamers.remove(s)
+            save_streamers(streamers)
+            await interaction.response.send_message(f"Removed {streamer} from tracking list.", ephemeral=True)
+            return
+    await interaction.response.send_message(f"{streamer} was not found.", ephemeral=True)
+
+# Slash command: List streamers
+@tree.command(name="liststreamers", description="List all tracked streamers.", guild=discord.Object(id=GUILD_ID))
+async def liststreamers(interaction: discord.Interaction):
+    streamers = load_streamers()
+    if streamers:
+        await interaction.response.send_message(f"Currently tracking: {', '.join(streamers)}", ephemeral=True)
+    else:
+        await interaction.response.send_message("No streamers are currently being tracked.", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
