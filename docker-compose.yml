@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   v1ewerbot:
     build: .
@@ -12,3 +11,11 @@ services:
       - CHANNEL_ID=${CHANNEL_ID}
     ports:
       - "5000:5000"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --interval 300
