@@ -61,10 +61,13 @@ async def check_streamers():
     channel = bot.get_channel(CHANNEL_ID)
 
     for streamer in streamers:
-        if await is_streamer_live(streamer, oauth_token):
+        username = streamer["username"]
+        message = streamer.get("message", f"@everyone {username} is live! Watch here: https://twitch.tv/{username}")
+
+        if await is_streamer_live(username, oauth_token):
             embed = discord.Embed(
-                title=f"{streamer} is LIVE!",
-                description=f"Check out the stream: https://twitch.tv/{streamer}",
+                title=f"{username} is LIVE!",
+                description=message,
                 color=discord.Color.purple()
             )
             await channel.send(embed=embed)
@@ -85,14 +88,14 @@ async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     bot.loop.create_task(auto_check_streamers())
 
-# Slash command: Add streamer
+# Slash command: Add streamer (default message for now)
 @tree.command(name="addstreamer", description="Add a streamer to tracking.", guild=discord.Object(id=GUILD_ID))
 async def addstreamer(interaction: discord.Interaction, streamer: str):
     streamers = load_streamers()
-    if streamer.lower() in (s.lower() for s in streamers):
+    if any(s["username"].lower() == streamer.lower() for s in streamers):
         await interaction.response.send_message(f"{streamer} is already being tracked.", ephemeral=True)
     else:
-        streamers.append(streamer)
+        streamers.append({"username": streamer, "message": f"@everyone {streamer} is live! https://twitch.tv/{streamer}"})
         save_streamers(streamers)
         await interaction.response.send_message(f"Added {streamer} to tracking list.", ephemeral=True)
 
@@ -100,20 +103,20 @@ async def addstreamer(interaction: discord.Interaction, streamer: str):
 @tree.command(name="removestreamer", description="Remove a streamer from tracking.", guild=discord.Object(id=GUILD_ID))
 async def removestreamer(interaction: discord.Interaction, streamer: str):
     streamers = load_streamers()
-    for s in streamers:
-        if s.lower() == streamer.lower():
-            streamers.remove(s)
-            save_streamers(streamers)
-            await interaction.response.send_message(f"Removed {streamer} from tracking list.", ephemeral=True)
-            return
-    await interaction.response.send_message(f"{streamer} was not found.", ephemeral=True)
+    updated = [s for s in streamers if s["username"].lower() != streamer.lower()]
+    if len(updated) != len(streamers):
+        save_streamers(updated)
+        await interaction.response.send_message(f"Removed {streamer} from tracking list.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"{streamer} was not found.", ephemeral=True)
 
 # Slash command: List streamers
 @tree.command(name="liststreamers", description="List all tracked streamers.", guild=discord.Object(id=GUILD_ID))
 async def liststreamers(interaction: discord.Interaction):
     streamers = load_streamers()
     if streamers:
-        await interaction.response.send_message(f"Currently tracking: {', '.join(streamers)}", ephemeral=True)
+        streamer_list = ', '.join([s["username"] for s in streamers])
+        await interaction.response.send_message(f"Currently tracking: {streamer_list}", ephemeral=True)
     else:
         await interaction.response.send_message("No streamers are currently being tracked.", ephemeral=True)
 
