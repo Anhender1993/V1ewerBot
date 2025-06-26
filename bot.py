@@ -18,9 +18,9 @@ intents = discord.Intents.default()
 intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-tree = discord.app_commands.CommandTree(bot)
 
 STREAMERS_FILE = 'streamers.json'
+announced_streamers = set()  # Track already-announced streamers
 
 def load_streamers():
     if os.path.exists(STREAMERS_FILE):
@@ -56,21 +56,34 @@ async def is_streamer_live(streamer_name, oauth_token):
             return bool(data['data'])
 
 async def check_streamers():
+    global announced_streamers
     oauth_token = await get_oauth_token()
     streamers = load_streamers()
     channel = bot.get_channel(CHANNEL_ID)
+
+    if channel is None:
+        print("[Error] Could not find channel.")
+        return
+
+    live_now = set()
 
     for streamer in streamers:
         username = streamer["username"]
         message = streamer.get("message", f"@everyone {username} is live! Watch here: https://twitch.tv/{username}")
 
         if await is_streamer_live(username, oauth_token):
-            embed = discord.Embed(
-                title=f"{username} is LIVE!",
-                description=message,
-                color=discord.Color.purple()
-            )
-            await channel.send(embed=embed)
+            live_now.add(username.lower())
+            if username.lower() not in announced_streamers:
+                embed = discord.Embed(
+                    title=f"{username} is LIVE!",
+                    description=message,
+                    color=discord.Color.purple()
+                )
+                await channel.send(embed=embed)
+                announced_streamers.add(username.lower())
+
+    # Clean up announced_streamers for streamers who are no longer live
+    announced_streamers = {s for s in announced_streamers if s in live_now}
 
 async def auto_check_streamers():
     await bot.wait_until_ready()
@@ -85,11 +98,14 @@ async def auto_check_streamers():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    try:
+        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"Synced {len(synced)} commands.")
+    except Exception as e:
+        print(f"[Sync Error] {e}")
     bot.loop.create_task(auto_check_streamers())
 
-# Slash command: Add streamer (default message for now)
-@tree.command(name="addstreamer", description="Add a streamer to tracking.", guild=discord.Object(id=GUILD_ID))
+@bot.tree.command(name="addstreamer", description="Add a streamer to tracking.", guild=discord.Object(id=GUILD_ID))
 async def addstreamer(interaction: discord.Interaction, streamer: str):
     streamers = load_streamers()
     if any(s["username"].lower() == streamer.lower() for s in streamers):
@@ -99,8 +115,7 @@ async def addstreamer(interaction: discord.Interaction, streamer: str):
         save_streamers(streamers)
         await interaction.response.send_message(f"Added {streamer} to tracking list.", ephemeral=True)
 
-# Slash command: Remove streamer
-@tree.command(name="removestreamer", description="Remove a streamer from tracking.", guild=discord.Object(id=GUILD_ID))
+@bot.tree.command(name="removestreamer", description="Remove a streamer from tracking.", guild=discord.Object(id=GUILD_ID))
 async def removestreamer(interaction: discord.Interaction, streamer: str):
     streamers = load_streamers()
     updated = [s for s in streamers if s["username"].lower() != streamer.lower()]
@@ -110,8 +125,7 @@ async def removestreamer(interaction: discord.Interaction, streamer: str):
     else:
         await interaction.response.send_message(f"{streamer} was not found.", ephemeral=True)
 
-# Slash command: List streamers
-@tree.command(name="liststreamers", description="List all tracked streamers.", guild=discord.Object(id=GUILD_ID))
+@bot.tree.command(name="liststreamers", description="List all tracked streamers.", guild=discord.Object(id=GUILD_ID))
 async def liststreamers(interaction: discord.Interaction):
     streamers = load_streamers()
     if streamers:
