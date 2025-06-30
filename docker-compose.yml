@@ -3,6 +3,8 @@ services:
     build: .
     container_name: v1ewerbot
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
